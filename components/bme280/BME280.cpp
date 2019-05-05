@@ -21,8 +21,8 @@ static bool debug = false;
 *
 * @param [in] address The %I2C address of the device on the %I2C bus.
 */
-BME280::BME280(uint8_t address) {
-    i2c.setAddress(address);
+BME280::BME280(uint8_t addr) {
+    address = addr;
 }
 
 /**
@@ -32,6 +32,8 @@ BME280::~BME280() {
 }
 
 uint8_t BME280::readRegister8(uint8_t reg) {
+    i2c.setAddress(address);
+
     i2c.beginTransaction();
     i2c.write(reg, true);
     i2c.endTransaction();
@@ -55,6 +57,8 @@ int16_t BME280::read16BitSignedLittleEndianRegister(uint8_t register_address) {
 }
 
 uint16_t BME280::read16BitBigEndianRegister(uint8_t reg) {
+    i2c.setAddress(address);
+
     i2c.beginTransaction();
     i2c.write(reg, true);
     i2c.endTransaction();
@@ -71,6 +75,8 @@ uint16_t BME280::read16BitBigEndianRegister(uint8_t reg) {
 }
 
 uint32_t BME280::readRegister24(uint8_t reg) {
+    i2c.setAddress(address);
+
     i2c.beginTransaction();
     i2c.write(reg, true);
     i2c.endTransaction();
@@ -89,6 +95,8 @@ uint32_t BME280::readRegister24(uint8_t reg) {
 }
 
 esp_err_t BME280::writeRegister8(uint8_t register_address, uint8_t data) {
+    i2c.setAddress(address);
+
     i2c.beginTransaction();
     i2c.write(register_address, true);
     i2c.write(data, true);
@@ -101,6 +109,8 @@ bme280_adc_data BME280::burstReadMeasurement() {
     uint8_t buffer[8];
 
     uint8_t reg = BME280_REGISTER_PRESSUREDATA;
+    
+    i2c.setAddress(address);
 
     i2c.beginTransaction();
     i2c.write(reg, true);
@@ -267,9 +277,7 @@ bme280_reading_data BME280::readSensorData() {
         ESP_LOGD(LOG_TAG, "readSensorData()");
     }
     bme280_reading_data reading_data;
-
     bme280_adc_data adc_data = burstReadMeasurement();
-
     reading_data.temperature = convertUncompensatedTemperature(adc_data.adc_data.adc_T);
     reading_data.pressure = convertUncompensatedPressure(adc_data.adc_data.adc_P);
     reading_data.humidity = convertUncompensatedHumidity(adc_data.adc_data.adc_H);
@@ -336,13 +344,12 @@ void BME280::readCoefficients(void) {
 * @param [in] sdaPin The pin to use for the %I2C SDA functions.
 * @param [in] clkPin The pin to use for the %I2C CLK functions.
 */
-esp_err_t BME280::init(gpio_num_t sdaPin, gpio_num_t clkPin) {
+esp_err_t BME280::init(I2C &bus) {
     if (debug) {
         ESP_LOGD(LOG_TAG, "init()");
     }
 
-    i2c.setDebug(false);
-    i2c.init(BME280_ADDRESS, sdaPin, clkPin);
+    i2c = bus;
 
     _sensor_id = readChipId();
     if (_sensor_id != 0x60) {

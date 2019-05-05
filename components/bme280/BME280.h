@@ -137,7 +137,7 @@ public:
 	BME280(uint8_t address=BME280_ADDRESS);
 	virtual ~BME280();
 	void setDebug(bool enabled);
-	esp_err_t init(gpio_num_t sdaPin=I2C::DEFAULT_SDA_PIN, gpio_num_t clkPin=I2C::DEFAULT_CLK_PIN);
+	esp_err_t init(I2C &i2c);
 
     float altitudeOfPressure(float pressure, float seaLevel);
     float seaLevelForAltitude(float altitude, float atmospheric);
@@ -149,7 +149,8 @@ public:
     uint8_t readChipId(void);
 
 private:
-	I2C i2c = I2C();
+	I2C i2c;
+    uint8_t address;
 
     void readCoefficients(void);
     uint8_t readRegister8(uint8_t reg);

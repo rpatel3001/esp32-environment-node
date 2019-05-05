@@ -12,11 +12,9 @@
 #include "esp_system.h"
 #include "esp_spi_flash.h"
 #include "esp_log.h"
-extern "C" {
-	#include "ssd1306.h"
-	#include "fonts.h"
-}
+#include "I2C.h"
 #include "BME280.h"
+#include "ssd1306.hpp"
 
 extern "C" {
    void app_main();
@@ -24,38 +22,36 @@ extern "C" {
 
 void app_main()
 {
+	I2C i2c = I2C();
+	i2c.init(GPIO_NUM_5, GPIO_NUM_4);
+
 	char* buf = new char[80];
 
-	BME280* sensor = new BME280();
-	sensor->init(GPIO_NUM_5, GPIO_NUM_4);
+	OLED oled = OLED(&i2c, SSD1306_128x64);
+	oled.init();
+	oled.select_font(1);
+
+	BME280* bme = new BME280();
+	bme->init(i2c);
 	bme280_reading_data data;
 
-	if(!ssd1306_init(0, 4, 5)) {
-		ESP_LOGI("OLED", "init failed");
-	} else {
-		ESP_LOGI("OLED", "init done");
-	}
-
-	data = sensor->readSensorData();
-
 	while(1) {
-		data = sensor->readSensorData();
-		data = sensor->readSensorData();
+		data = bme->readSensorData();
 
-		ssd1306_init(0, 4, 5);
+		sprintf(buf, "%.2f deg", data.temperature * 9 / 5 + 32);
+		printf("%s\t",  buf);
+		oled.draw_string(0, 0, buf, WHITE, BLACK);
 
-		sprintf(buf, "%.1f deg F", data.temperature * 9 / 5 + 32);
-		ESP_LOGI("BME", "%s",  buf);
-		ssd1306_draw_string(0, 0, 0, buf, SSD1306_COLOR_WHITE, SSD1306_COLOR_BLACK);
+		sprintf(buf, "%.2f%% RH", data.humidity);
+		printf("%s\t", buf);
+		oled.draw_string(0, 15, buf, WHITE, BLACK);
 
-		sprintf(buf, "%.1f%% RH", data.humidity);
-		ESP_LOGI("BME", "%s", buf);
-		ssd1306_draw_string(0, 0, 20, buf, SSD1306_COLOR_WHITE, SSD1306_COLOR_BLACK);
+		sprintf(buf, "%.2f kPa", data.pressure / 1000);
+		printf("%s\n",  buf);
+		oled.draw_string(0, 30, buf, WHITE, BLACK);
 
-		sprintf(buf, "%.1f kPa\n", data.pressure / 1000);
-		ESP_LOGI("BME", "%s",  buf);
-		ssd1306_draw_string(0, 0, 40, buf, SSD1306_COLOR_WHITE, SSD1306_COLOR_BLACK);
-
-		ssd1306_refresh(0, true);
+    	oled.refresh(true);
+		oled.fill_rectangle(0, 0, 128, 64, BLACK);
+	    vTaskDelay(1000/portTICK_PERIOD_MS);
 	}
 }
