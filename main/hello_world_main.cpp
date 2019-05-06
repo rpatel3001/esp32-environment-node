@@ -11,7 +11,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include "freertos/event_groups.h"
+#include <freertos/event_groups.h>
 #include <esp_system.h>
 #include <esp_log.h>
 #include <driver/gpio.h>
@@ -19,6 +19,7 @@
 #include <esp_event.h>
 #include <esp_event_loop.h>
 #include <nvs_flash.h>
+#include <esp_sntp.h>
 
 #include "I2C.h"
 #include "BME280.h"
@@ -26,6 +27,29 @@
 
 extern "C" {
    void app_main();
+}
+
+static void obtain_time(void) {
+	esp_wifi_start();
+
+    sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    sntp_setservername(0, "pool.ntp.org");
+    //sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+    sntp_init();
+
+    // wait for time to be set
+    time_t now = 0;
+    struct tm timeinfo = {};
+    int retry = 0;
+    const int retry_count = 10;
+    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+        ESP_LOGI("ntp", "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+    }
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    esp_wifi_stop();
 }
 
 static EventGroupHandle_t s_wifi_event_group;
@@ -75,6 +99,7 @@ void app_main()
 {
 	nvs_flash_init();
 	wifi_init_sta();
+	obtain_time();
 
 	gpio_config_t cfg;
 	cfg.intr_type = GPIO_INTR_DISABLE;
@@ -99,6 +124,8 @@ void app_main()
 	time_t t1;
 	tm* t2;
 	while(1) {
+		esp_wifi_start();
+
 		t1 = time(NULL);
 		t2 = localtime(&t1);
 		printf(asctime(t2));
@@ -116,10 +143,11 @@ void app_main()
     	oled.refresh(true);
 		oled.fill_rectangle(0, 0, 128, 64, BLACK);
 
-		esp_wifi_start();
-		while(!got_ip);
-	    vTaskDelay(10000/portTICK_PERIOD_MS);
+		while(!got_ip) {
+		    vTaskDelay(1000/portTICK_PERIOD_MS);
+		}
 	    esp_wifi_stop();
-	    vTaskDelay(30000/portTICK_PERIOD_MS);
+
+	    vTaskDelay(10000/portTICK_PERIOD_MS);
 	}
 }
