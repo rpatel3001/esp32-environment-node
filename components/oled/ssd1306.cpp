@@ -95,8 +95,8 @@ bool OLED::init() {
 		command(address, 0x40); // SSD1306_SETSTARTLINE line #0
 		command(address, 0x20); // SSD1306_MEMORYMODE
 		command(address, 0x00); // 0x0 act like ks0108
-		command(address, 0xa1); // SSD1306_SEGREMAP | 1
-		command(address, 0xc8); // SSD1306_COMSCANDEC
+		command(address, 0xa0); // SSD1306_SEGREMAP | 0
+		command(address, 0xc0); // SSD1306_COMSCANINC
 		command(address, 0xda); // SSD1306_SETCOMPINS
 		command(address, 0x12);
 		command(address, 0x81); // SSD1306_SETCONTRAST
@@ -123,8 +123,8 @@ bool OLED::init() {
 		command(address, 0x14); // Charge pump on
 		command(address, 0x20); // SSD1306_MEMORYMODE
 		command(address, 0x00); // 0x0 act like ks0108
-		command(address, 0xa1); // SSD1306_SEGREMAP | 1
-		command(address, 0xc8); // SSD1306_COMSCANDEC
+		command(address, 0xa0); // SSD1306_SEGREMAP | 0
+		command(address, 0xc0); // SSD1306_COMSCANINC
 		command(address, 0xda); // SSD1306_SETCOMPINS
 		command(address, 0x02);
 		command(address, 0x81); // SSD1306_SETCONTRAST

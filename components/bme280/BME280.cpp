@@ -21,8 +21,9 @@ static bool debug = false;
 *
 * @param [in] address The %I2C address of the device on the %I2C bus.
 */
-BME280::BME280(uint8_t addr) {
+BME280::BME280(I2C & bus, uint8_t addr) {
     address = addr;
+    i2c = bus;
 }
 
 /**
@@ -276,6 +277,12 @@ bme280_reading_data BME280::readSensorData() {
     if (debug) {
         ESP_LOGD(LOG_TAG, "readSensorData()");
     }
+    writeRegister8(BME280_REGISTER_CONTROL, 0x25);
+    uint8_t running = readRegister8(0xF3) & 8;
+    while(running) {
+        vTaskDelay(2/portTICK_PERIOD_MS);
+        running = readRegister8(0xF3) & 8;
+    }
     bme280_reading_data reading_data;
     bme280_adc_data adc_data = burstReadMeasurement();
     reading_data.temperature = convertUncompensatedTemperature(adc_data.adc_data.adc_T);
@@ -344,17 +351,21 @@ void BME280::readCoefficients(void) {
 * @param [in] sdaPin The pin to use for the %I2C SDA functions.
 * @param [in] clkPin The pin to use for the %I2C CLK functions.
 */
-esp_err_t BME280::init(I2C &bus) {
+esp_err_t BME280::init() {
     if (debug) {
         ESP_LOGD(LOG_TAG, "init()");
     }
 
-    i2c = bus;
+    uint8_t running = readRegister8(0xF3) & 1;
+    while(running) {
+        vTaskDelay(2/portTICK_PERIOD_MS);
+        running = readRegister8(0xF3) & 1;
+    }
 
     _sensor_id = readChipId();
     if (_sensor_id != 0x60) {
         if (debug) {
-            ESP_LOGD(LOG_TAG, "Could not read chip id during initialization");
+            ESP_LOGD(LOG_TAG, "Could not read chip id during initialization, got 0x%x", _sensor_id);
         }
 
         return ESP_ERR_NOT_FOUND;
@@ -364,13 +375,15 @@ esp_err_t BME280::init(I2C &bus) {
         ESP_LOGD(LOG_TAG, "Sucessfully read chipId");
     }
 
-    vTaskDelay(1000/portTICK_PERIOD_MS);
-
-    readCoefficients();
+    if(!got_cal) {
+        readCoefficients();
+        got_cal = true;
+    }
 
     // Set before CONTROL_meas (DS 5.4.3)
-    writeRegister8(BME280_REGISTER_CONTROLHUMID, 0x05); // 16x oversampling
-    writeRegister8(BME280_REGISTER_CONTROL, 0xB7);      // 16x oversampling, normal mode
+    //writeRegister8(BME280_REGISTER_CONFIG, 0xA0);
+    writeRegister8(BME280_REGISTER_CONTROLHUMID, 0x01); // 16x oversampling
+    writeRegister8(BME280_REGISTER_CONTROL, 0x25);      // 16x oversampling, normal mode
 
     return ESP_OK;
 } // init

@@ -134,10 +134,10 @@ union bme280_adc_data
  */
 class BME280 {
 public:
-	BME280(uint8_t address=BME280_ADDRESS);
+	BME280(I2C &bus, uint8_t address=BME280_ADDRESS);
 	virtual ~BME280();
 	void setDebug(bool enabled);
-	esp_err_t init(I2C &i2c);
+	esp_err_t init();
 
     float altitudeOfPressure(float pressure, float seaLevel);
     float seaLevelForAltitude(float altitude, float atmospheric);
@@ -151,6 +151,7 @@ public:
 private:
 	I2C i2c;
     uint8_t address;
+    bool got_cal = false;
 
     void readCoefficients(void);
     uint8_t readRegister8(uint8_t reg);
