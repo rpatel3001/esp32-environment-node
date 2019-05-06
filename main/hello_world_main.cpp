@@ -41,7 +41,7 @@ static void obtain_time(void) {
     time_t now = 0;
     struct tm timeinfo = {};
     int retry = 0;
-    const int retry_count = 10;
+    const int retry_count = 100;
     while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
         ESP_LOGI("ntp", "Waiting for system time to be set... (%d/%d)", retry, retry_count);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
