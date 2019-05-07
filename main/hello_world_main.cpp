@@ -20,6 +20,7 @@
 #include <esp_event_loop.h>
 #include <nvs_flash.h>
 #include <esp_sntp.h>
+#include <esp_http_client.h>
 
 #include "I2C.h"
 #include "BME280.h"
@@ -29,8 +30,43 @@ extern "C" {
    void app_main();
 }
 
+esp_err_t _http_event_handle(esp_http_client_event_t *evt) {
+    /*switch(evt->event_id) {
+        case HTTP_EVENT_ERROR:
+            ESP_LOGI("http", "HTTP_EVENT_ERROR");
+            break;
+        case HTTP_EVENT_ON_CONNECTED:
+            ESP_LOGI("http", "HTTP_EVENT_ON_CONNECTED");
+            break;
+        case HTTP_EVENT_HEADER_SENT:
+            ESP_LOGI("http", "HTTP_EVENT_HEADER_SENT");
+            break;
+        case HTTP_EVENT_ON_HEADER:
+            ESP_LOGI("http", "HTTP_EVENT_ON_HEADER");
+            printf("%.*s", evt->data_len, (char*)evt->data);
+            break;
+        case HTTP_EVENT_ON_DATA:
+            ESP_LOGI("http", "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+            if (!esp_http_client_is_chunked_response(evt->client)) {
+                printf("%.*s", evt->data_len, (char*)evt->data);
+            }
+
+            break;
+        case HTTP_EVENT_ON_FINISH:
+            ESP_LOGI("http", "HTTP_EVENT_ON_FINISH");
+            break;
+        case HTTP_EVENT_DISCONNECTED:
+            ESP_LOGI("http", "HTTP_EVENT_DISCONNECTED");
+            break;
+    }*/
+    return ESP_OK;
+}
+
 static void obtain_time(void) {
 	esp_wifi_start();
+
+	setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0", 1);
+    tzset();
 
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "pool.ntp.org");
@@ -95,11 +131,16 @@ void wifi_init_sta()
     ESP_LOGI("wifi", "wifi_init_sta finished.");
 }
 
-void app_main()
-{
+void app_main() {
 	nvs_flash_init();
 	wifi_init_sta();
 	obtain_time();
+
+	esp_http_client_config_t config = {};
+    config.url = "https://rajanpatel.net/api/esp_report";
+    config.event_handler = _http_event_handle;
+    config.method = HTTP_METHOD_POST;
+	esp_http_client_handle_t client;
 
 	gpio_config_t cfg;
 	cfg.intr_type = GPIO_INTR_DISABLE;
@@ -126,6 +167,8 @@ void app_main()
 	while(1) {
 		esp_wifi_start();
 
+		oled.fill_rectangle(0, 0, 128, 64, BLACK);
+
 		t1 = time(NULL);
 		t2 = localtime(&t1);
 		printf(asctime(t2));
@@ -138,16 +181,32 @@ void app_main()
 
 		sprintf(buf, "%.1f deg %.0f%% RH %.1f kPa", data.temperature * 9 / 5 + 32, data.humidity, data.pressure / 1000);
 		printf("%s\n",  buf);
-		oled.draw_string(0, 13, buf, WHITE, BLACK);
+		oled.draw_string(0, 26, buf, WHITE, BLACK);
 
-    	oled.refresh(true);
-		oled.fill_rectangle(0, 0, 128, 64, BLACK);
 
 		while(!got_ip) {
 		    vTaskDelay(1000/portTICK_PERIOD_MS);
 		}
+		tcpip_adapter_ip_info_t ipInfo;
+		tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ipInfo);
+		sprintf(buf, "%d.%d.%d.%d", IP2STR(&ipInfo.ip));
+		oled.draw_string(0, 13, buf, WHITE, BLACK);
+		
+		client = esp_http_client_init(&config);
+		sprintf(buf, "temp=%.1f&hum=%.0f&pres=%.1f&down_speed=%.1f", data.temperature * 9 / 5 + 32, data.humidity, data.pressure / 1000, 0.0);
+	    esp_http_client_set_post_field(client, buf, strlen(buf));
+		
+		esp_err_t err = esp_http_client_perform(client);
+	    if (err == ESP_OK) {
+	        ESP_LOGI("http", "Status = %d, content_length = %d",
+	        esp_http_client_get_status_code(client),
+	        esp_http_client_get_content_length(client));
+	    }
+	    esp_http_client_cleanup(client);
+
 	    esp_wifi_stop();
 
+    	oled.refresh(true);
 	    vTaskDelay(10000/portTICK_PERIOD_MS);
 	}
 }
