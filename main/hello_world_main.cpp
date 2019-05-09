@@ -106,16 +106,28 @@ static void event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
-void wifi_init_sta()
-{
+void app_main() {
+
+	I2C i2c = I2C();
+	i2c.init(GPIO_NUM_5, GPIO_NUM_4);
+
+	OLED oled = OLED(&i2c, SSD1306_128x64);
+	oled.init();
+	oled.select_font(1);
+	oled.fill_rectangle(0, 0, 128, 64, BLACK);
+	oled.draw_string(0, 0, "Starting...", WHITE, BLACK);
+	oled.refresh(true);
+
+	nvs_flash_init();
+
     s_wifi_event_group = xEventGroupCreate();
 
     tcpip_adapter_init();
 
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&wifi_cfg));
 
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
@@ -124,40 +136,29 @@ void wifi_init_sta()
     wifi_config.sta = {};
     strcpy((char*)wifi_config.sta.ssid, "MARS-GUEST");
     strcpy((char*)wifi_config.sta.password, "internet");
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config) );
-    //ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 
-    ESP_LOGI("wifi", "wifi_init_sta finished.");
-}
-
-void app_main() {
-	nvs_flash_init();
-	wifi_init_sta();
+	oled.fill_rectangle(0, 0, 128, 64, BLACK);
+	oled.draw_string(0, 0, "Getting the time...", WHITE, BLACK);
+	oled.refresh(true);
 	obtain_time();
 
-	esp_http_client_config_t config = {};
-    config.url = "https://rajanpatel.net/api/esp_report";
-    config.event_handler = _http_event_handle;
-    config.method = HTTP_METHOD_POST;
-	esp_http_client_handle_t client;
+	esp_http_client_handle_t report_client;
+	esp_http_client_config_t report_config = {};
+    report_config.url = "https://rajanpatel.net/api/esp_report";
+    report_config.event_handler = _http_event_handle;
+    report_config.method = HTTP_METHOD_POST;
 
-	gpio_config_t cfg;
-	cfg.intr_type = GPIO_INTR_DISABLE;
-	cfg.mode = GPIO_MODE_OUTPUT;
-	cfg.pin_bit_mask = GPIO_SEL_13;
-	cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
-	cfg.pull_up_en = GPIO_PULLUP_DISABLE;
-	gpio_config(&cfg);
-
-	I2C i2c = I2C();
-	i2c.init(GPIO_NUM_5, GPIO_NUM_4);
+	gpio_config_t gpio_cfg;
+	gpio_cfg.intr_type = GPIO_INTR_DISABLE;
+	gpio_cfg.mode = GPIO_MODE_OUTPUT;
+	gpio_cfg.pin_bit_mask = GPIO_SEL_13;
+	gpio_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+	gpio_cfg.pull_up_en = GPIO_PULLUP_DISABLE;
+	gpio_config(&gpio_cfg);
 
 	char* buf = new char[80];
-
-	OLED oled = OLED(&i2c, SSD1306_128x64);
-	oled.init();
-	oled.select_font(1);
 
 	BME280* bme = new BME280(i2c);
 	bme280_reading_data data;
@@ -183,26 +184,26 @@ void app_main() {
 		printf("%s\n",  buf);
 		oled.draw_string(0, 26, buf, WHITE, BLACK);
 
-
 		while(!got_ip) {
 		    vTaskDelay(1000/portTICK_PERIOD_MS);
 		}
+
 		tcpip_adapter_ip_info_t ipInfo;
 		tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ipInfo);
 		sprintf(buf, "%d.%d.%d.%d", IP2STR(&ipInfo.ip));
 		oled.draw_string(0, 13, buf, WHITE, BLACK);
-		
-		client = esp_http_client_init(&config);
-		sprintf(buf, "temp=%.1f&hum=%.0f&pres=%.1f&down_speed=%.1f", data.temperature * 9 / 5 + 32, data.humidity, data.pressure / 1000, 0.0);
-	    esp_http_client_set_post_field(client, buf, strlen(buf));
-		
-		esp_err_t err = esp_http_client_perform(client);
-	    if (err == ESP_OK) {
+
+		report_client = esp_http_client_init(&report_config);
+		sprintf(buf, "temp=%.1f&hum=%.0f&pres=%.1f",
+			    data.temperature * 9 / 5 + 32, 
+			    data.humidity, data.pressure / 1000);
+	    esp_http_client_set_post_field(report_client, buf, strlen(buf));
+	    if (esp_http_client_perform(report_client) == ESP_OK) {
 	        ESP_LOGI("http", "Status = %d, content_length = %d",
-	        esp_http_client_get_status_code(client),
-	        esp_http_client_get_content_length(client));
+	        esp_http_client_get_status_code(report_client),
+	        esp_http_client_get_content_length(report_client));
 	    }
-	    esp_http_client_cleanup(client);
+	    esp_http_client_cleanup(report_client);
 
 	    esp_wifi_stop();
 
