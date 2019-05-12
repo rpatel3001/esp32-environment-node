@@ -62,32 +62,6 @@ esp_err_t _http_event_handle(esp_http_client_event_t *evt) {
     return ESP_OK;
 }
 
-static void obtain_time(void) {
-	esp_wifi_start();
-
-	setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0", 1);
-    tzset();
-
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "pool.ntp.org");
-    //sntp_set_time_sync_notification_cb(time_sync_notification_cb);
-    sntp_init();
-
-    // wait for time to be set
-    time_t now = 0;
-    struct tm timeinfo = {};
-    int retry = 0;
-    const int retry_count = 100;
-    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
-        ESP_LOGI("ntp", "Waiting for system time to be set... (%d/%d)", retry, retry_count);
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
-    }
-    time(&now);
-    localtime_r(&now, &timeinfo);
-
-    esp_wifi_stop();
-}
-
 static EventGroupHandle_t s_wifi_event_group;
 volatile bool got_ip = false;
 static void event_handler(void* arg, esp_event_base_t event_base, 
@@ -134,15 +108,49 @@ void app_main() {
 
     wifi_config_t wifi_config = {};
     wifi_config.sta = {};
-    strcpy((char*)wifi_config.sta.ssid, "MARS-GUEST");
-    strcpy((char*)wifi_config.sta.password, "internet");
+    strcpy((char*)wifi_config.sta.ssid, "Patels");
+    strcpy((char*)wifi_config.sta.password, "rajananandriya");
+//    strcpy((char*)wifi_config.sta.ssid, "C1936A");
+//    strcpy((char*)wifi_config.sta.password, "57607900");
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+
+	esp_wifi_start();
+
+	oled.fill_rectangle(0, 0, 128, 64, BLACK);
+	oled.draw_string(0, 0, "Connecting to wifi...", WHITE, BLACK);
+	oled.refresh(true);
+
+	while(!got_ip) {
+	    vTaskDelay(1000/portTICK_PERIOD_MS);
+	}
 
 	oled.fill_rectangle(0, 0, 128, 64, BLACK);
 	oled.draw_string(0, 0, "Getting the time...", WHITE, BLACK);
 	oled.refresh(true);
-	obtain_time();
+
+
+	setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0", 1);
+    tzset();
+
+    sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    sntp_setservername(0, "pool.ntp.org");
+    //sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+    sntp_init();
+
+    // wait for time to be set
+    time_t now = 0;
+    struct tm timeinfo = {};
+    int retry = 0;
+    const int retry_count = 100;
+    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+        ESP_LOGI("ntp", "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+    }
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    //esp_wifi_stop();
 
 	esp_http_client_handle_t report_client;
 	esp_http_client_config_t report_config = {};
@@ -166,7 +174,8 @@ void app_main() {
 	time_t t1;
 	tm* t2;
 	while(1) {
-		esp_wifi_start();
+		printf("heap size: %d\n", esp_get_free_heap_size());
+		//esp_wifi_start();
 
 		oled.fill_rectangle(0, 0, 128, 64, BLACK);
 
@@ -205,7 +214,7 @@ void app_main() {
 	    }
 	    esp_http_client_cleanup(report_client);
 
-	    esp_wifi_stop();
+	    //esp_wifi_stop();
 
     	oled.refresh(true);
 	    vTaskDelay(10000/portTICK_PERIOD_MS);
