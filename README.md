@@ -1,5 +1,4 @@
-# Hello World Example
+# ESP32 Weather Station
 
-Starts a FreeRTOS task to print "Hello World"
-
-See the README.md file in the upper level 'examples' directory for more information about examples.
+Built for an ESP32 dev board with integrated OLED screen and BME280 sensor sharing an I2C bus.
+Measures temperature, pressure, and humidity and reports it back to a server. 
