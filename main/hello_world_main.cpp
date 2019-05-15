@@ -32,34 +32,6 @@ extern "C" {
 }
 
 esp_err_t _http_event_handle(esp_http_client_event_t *evt) {
-    /*switch(evt->event_id) {
-        case HTTP_EVENT_ERROR:
-            ESP_LOGI("http", "HTTP_EVENT_ERROR");
-            break;
-        case HTTP_EVENT_ON_CONNECTED:
-            ESP_LOGI("http", "HTTP_EVENT_ON_CONNECTED");
-            break;
-        case HTTP_EVENT_HEADER_SENT:
-            ESP_LOGI("http", "HTTP_EVENT_HEADER_SENT");
-            break;
-        case HTTP_EVENT_ON_HEADER:
-            ESP_LOGI("http", "HTTP_EVENT_ON_HEADER");
-            printf("%.*s", evt->data_len, (char*)evt->data);
-            break;
-        case HTTP_EVENT_ON_DATA:
-            ESP_LOGI("http", "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
-            if (!esp_http_client_is_chunked_response(evt->client)) {
-                printf("%.*s", evt->data_len, (char*)evt->data);
-            }
-
-            break;
-        case HTTP_EVENT_ON_FINISH:
-            ESP_LOGI("http", "HTTP_EVENT_ON_FINISH");
-            break;
-        case HTTP_EVENT_DISCONNECTED:
-            ESP_LOGI("http", "HTTP_EVENT_DISCONNECTED");
-            break;
-    }*/
     return ESP_OK;
 }
 
@@ -81,6 +53,7 @@ static void event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
+RTC_DATA_ATTR int bootCount = 0;
 void app_main() {
 	I2C i2c = I2C();
 	i2c.init(GPIO_NUM_5, GPIO_NUM_4);
@@ -92,7 +65,12 @@ void app_main() {
 	oled.draw_string(0, 0, "Starting...", WHITE, BLACK);
 	oled.refresh(true);
 
-	nvs_flash_init();
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
 
     s_wifi_event_group = xEventGroupCreate();
 
@@ -110,8 +88,6 @@ void app_main() {
     wifi_config.sta = {};
     strcpy((char*)wifi_config.sta.ssid, "Patels");
     strcpy((char*)wifi_config.sta.password, "rajananandriya");
-//    strcpy((char*)wifi_config.sta.ssid, "C1936A");
-//    strcpy((char*)wifi_config.sta.password, "57607900");
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 
@@ -128,7 +104,7 @@ void app_main() {
 	setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0", 1);
     tzset();
 
-    if(esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
+    if(bootCount == 0) {
     	oled.fill_rectangle(0, 0, 128, 64, BLACK);
     	oled.draw_string(0, 0, "Getting the time...", WHITE, BLACK);
     	oled.refresh(true);
@@ -145,12 +121,10 @@ void app_main() {
         const int retry_count = 100;
         while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
             ESP_LOGI("ntp", "Waiting for system time to be set... (%d/%d)", retry, retry_count);
-            vTaskDelay(2000 / portTICK_PERIOD_MS);
+            vTaskDelay(100 / portTICK_PERIOD_MS);
         }
         time(&now);
         localtime_r(&now, &timeinfo);
-
-        //esp_wifi_stop();
     }
 	esp_http_client_handle_t report_client;
 	esp_http_client_config_t report_config = {};
@@ -168,61 +142,44 @@ void app_main() {
 
 	char* buf = new char[80];
 
-	BME280* bme = new BME280(i2c);
-	bme280_reading_data data;
+    gpio_set_level(GPIO_NUM_13, 1);
+    BME280* bme = new BME280(i2c);
+    bme280_reading_data data;
+    bme->init();
+    data = bme->readSensorData();
+    gpio_set_level(GPIO_NUM_13, 0);
 
-	time_t t1;
-	tm* t2;
-	while(1) {
-		printf("heap size: %d\n", esp_get_free_heap_size());
-		printf("min heap size: %d\n", esp_get_minimum_free_heap_size());
-		printf("uptime: %f\n", esp_timer_get_time()/60000000.0);
-		
-		//esp_wifi_start();
+	oled.fill_rectangle(0, 0, 128, 64, BLACK);
 
-		oled.fill_rectangle(0, 0, 128, 64, BLACK);
+	time_t t1 = time(NULL);
+	tm* t2 = localtime(&t1);
+	printf(asctime(t2));
+	oled.draw_string(0, 0, asctime(t2), WHITE, BLACK);
 
-		t1 = time(NULL);
-		t2 = localtime(&t1);
-		printf(asctime(t2));
-		oled.draw_string(0, 0, asctime(t2), WHITE, BLACK);
+	sprintf(buf, "%.1f *F %.0f%% RH %.2f inHg", data.temperature * 1.8 + 32, data.humidity, data.pressure / 3386.39);
+	printf("%s\n",  buf);
+	oled.draw_string(0, 26, buf, WHITE, BLACK);
 
-        gpio_set_level(GPIO_NUM_13, 1);
-		bme->init();
-		data = bme->readSensorData();
-        gpio_set_level(GPIO_NUM_13, 0);
+	tcpip_adapter_ip_info_t ipInfo;
+	tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ipInfo);
+	sprintf(buf, "%d.%d.%d.%d bootcnt=%d", IP2STR(&ipInfo.ip), ++bootCount);
+	oled.draw_string(0, 13, buf, WHITE, BLACK);
 
-		sprintf(buf, "%.1f deg %.0f%% RH %.1f kPa", data.temperature * 9 / 5 + 32, data.humidity, data.pressure / 1000);
-		printf("%s\n",  buf);
-		oled.draw_string(0, 26, buf, WHITE, BLACK);
+	report_client = esp_http_client_init(&report_config);
+	sprintf(buf, "temp=%.2f&hum=%.2f&pres=%.2f",
+		    data.temperature * 1.8 + 32, 
+		    data.humidity, data.pressure / 3386.39);
+    esp_http_client_set_post_field(report_client, buf, strlen(buf));
+    if (esp_http_client_perform(report_client) == ESP_OK) {
+        ESP_LOGI("http", "Status = %d, content_length = %d",
+        esp_http_client_get_status_code(report_client),
+        esp_http_client_get_content_length(report_client));
+    }
+    esp_http_client_cleanup(report_client);
 
-		//while(!got_ip) {
-		//    vTaskDelay(100/portTICK_PERIOD_MS);
-		//}
+    oled.refresh(true);
 
-		tcpip_adapter_ip_info_t ipInfo;
-		tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ipInfo);
-		sprintf(buf, "%d.%d.%d.%d", IP2STR(&ipInfo.ip));
-		oled.draw_string(0, 13, buf, WHITE, BLACK);
+    esp_wifi_stop();
 
-		report_client = esp_http_client_init(&report_config);
-		sprintf(buf, "temp=%.1f&hum=%.0f&pres=%.1f",
-			    data.temperature * 9 / 5 + 32, 
-			    data.humidity, data.pressure / 1000);
-	    esp_http_client_set_post_field(report_client, buf, strlen(buf));
-	    if (esp_http_client_perform(report_client) == ESP_OK) {
-	        ESP_LOGI("http", "Status = %d, content_length = %d",
-	        esp_http_client_get_status_code(report_client),
-	        esp_http_client_get_content_length(report_client));
-	    }
-	    esp_http_client_cleanup(report_client);
-
-        oled.refresh(true);
-
-	    esp_wifi_stop();
-
-        //esp_sleep_enable_timer_wakeup(1 * 10 * 1000000);
-	    //esp_light_sleep_start();
-        esp_deep_sleep(5 * 60 * 1000000);
-	}
+    esp_deep_sleep(5 * 60 * 1000000);
 }
