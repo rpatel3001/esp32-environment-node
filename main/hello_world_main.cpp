@@ -21,6 +21,7 @@
 #include <nvs_flash.h>
 #include <esp_sntp.h>
 #include <esp_http_client.h>
+#include <esp_sleep.h>
 
 #include "I2C.h"
 #include "BME280.h"
@@ -81,7 +82,6 @@ static void event_handler(void* arg, esp_event_base_t event_base,
 }
 
 void app_main() {
-
 	I2C i2c = I2C();
 	i2c.init(GPIO_NUM_5, GPIO_NUM_4);
 
@@ -122,36 +122,36 @@ void app_main() {
 	oled.refresh(true);
 
 	while(!got_ip) {
-	    vTaskDelay(1000/portTICK_PERIOD_MS);
+	    vTaskDelay(100/portTICK_PERIOD_MS);
 	}
-
-	oled.fill_rectangle(0, 0, 128, 64, BLACK);
-	oled.draw_string(0, 0, "Getting the time...", WHITE, BLACK);
-	oled.refresh(true);
-
 
 	setenv("TZ", "EST5EDT,M3.2.0/2,M11.1.0", 1);
     tzset();
 
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "pool.ntp.org");
-    //sntp_set_time_sync_notification_cb(time_sync_notification_cb);
-    sntp_init();
+    if(esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
+    	oled.fill_rectangle(0, 0, 128, 64, BLACK);
+    	oled.draw_string(0, 0, "Getting the time...", WHITE, BLACK);
+    	oled.refresh(true);
 
-    // wait for time to be set
-    time_t now = 0;
-    struct tm timeinfo = {};
-    int retry = 0;
-    const int retry_count = 100;
-    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
-        ESP_LOGI("ntp", "Waiting for system time to be set... (%d/%d)", retry, retry_count);
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
+        sntp_setoperatingmode(SNTP_OPMODE_POLL);
+        sntp_setservername(0, "pool.ntp.org");
+        //sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+        sntp_init();
+
+        // wait for time to be set
+        time_t now = 0;
+        struct tm timeinfo = {};
+        int retry = 0;
+        const int retry_count = 100;
+        while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+            ESP_LOGI("ntp", "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+            vTaskDelay(2000 / portTICK_PERIOD_MS);
+        }
+        time(&now);
+        localtime_r(&now, &timeinfo);
+
+        //esp_wifi_stop();
     }
-    time(&now);
-    localtime_r(&now, &timeinfo);
-
-    //esp_wifi_stop();
-
 	esp_http_client_handle_t report_client;
 	esp_http_client_config_t report_config = {};
     report_config.url = "https://rajanpatel.net/api/esp_report";
@@ -175,6 +175,9 @@ void app_main() {
 	tm* t2;
 	while(1) {
 		printf("heap size: %d\n", esp_get_free_heap_size());
+		printf("min heap size: %d\n", esp_get_minimum_free_heap_size());
+		printf("uptime: %f\n", esp_timer_get_time()/60000000.0);
+		
 		//esp_wifi_start();
 
 		oled.fill_rectangle(0, 0, 128, 64, BLACK);
@@ -193,9 +196,9 @@ void app_main() {
 		printf("%s\n",  buf);
 		oled.draw_string(0, 26, buf, WHITE, BLACK);
 
-		while(!got_ip) {
-		    vTaskDelay(1000/portTICK_PERIOD_MS);
-		}
+		//while(!got_ip) {
+		//    vTaskDelay(100/portTICK_PERIOD_MS);
+		//}
 
 		tcpip_adapter_ip_info_t ipInfo;
 		tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ipInfo);
@@ -214,9 +217,12 @@ void app_main() {
 	    }
 	    esp_http_client_cleanup(report_client);
 
-	    //esp_wifi_stop();
+        oled.refresh(true);
 
-    	oled.refresh(true);
-	    vTaskDelay(10000/portTICK_PERIOD_MS);
+	    esp_wifi_stop();
+
+        //esp_sleep_enable_timer_wakeup(1 * 10 * 1000000);
+	    //esp_light_sleep_start();
+        esp_deep_sleep(5 * 60 * 1000000);
 	}
 }
